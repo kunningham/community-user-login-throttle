@@ -1,0 +1,1 @@
+Copy \bin folder from Community web folder here
