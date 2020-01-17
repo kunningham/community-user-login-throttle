@@ -51,7 +51,37 @@ namespace CommunityUserThrottle
 			catch (Exception ex)
 			{
 				Telligent.Evolution.Extensibility.Apis.Get<IEventLog>().Write($"Error while logging failed login attempt: '{ex}')."
-					, new EventLogEntryWriteOptions() { Category = "LoginThrottling", EventType = "Information" });
+					, new EventLogEntryWriteOptions() { Category = "LoginThrottling", EventType = "Error" });
+			}
+		}
+
+		void SendIpThrottledEmail(string ip, LoginAttemptsSummary loginSummary, string emailAddresses)
+		{
+			try
+			{
+				if (!SendEmail || string.IsNullOrEmpty(emailAddresses) || loginSummary == null)
+					return;
+
+				var email = Telligent.Evolution.Extensibility.Apis.Get<ISendEmail>();
+				var siteInfo = Telligent.Evolution.Extensibility.Apis.Get<IInfoResults>();
+				var emailOptions = new SendEmailOptions
+				{
+					Body =
+						$"Throttling IP '{ip}' until '{loginSummary.ThrottledUntilTime.ToLocalTime()}' ({TimeToThrottle.Minutes} minutes) due to too many login attempts ({loginSummary.NumberOfAttempts}).",
+					Subject =
+						$"[{siteInfo.Get().SiteName}]-IP Login Throttle: The IP '{ip}' as been throttled until {loginSummary.ThrottledUntilTime.ToLocalTime()}",
+				};
+				var emails = EmailAddresses.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries);
+				foreach (var e in emails)
+				{
+					emailOptions.ToEmail = e.Trim();
+					email.Send(emailOptions);
+				}
+			}
+			catch (Exception ex)
+			{
+				Telligent.Evolution.Extensibility.Apis.Get<IEventLog>().Write($"Error while trying to send ip throttled email. Continue with process but error was: '{ex}')."
+					, new EventLogEntryWriteOptions() { Category = "LoginThrottling", EventType = "Error" });
 			}
 		}
 
@@ -109,6 +139,7 @@ namespace CommunityUserThrottle
 				else if (loginSummary.FirstAttemptDate > DateTime.MinValue && loginSummary.NumberOfAttempts > MaximumNumberOfLoginAttempts)
 				{
 					loginSummary.ThrottledUntilTime = DateTime.UtcNow.Add(TimeToThrottle);
+					SendIpThrottledEmail(ip, loginSummary, EmailAddresses);
 					Telligent.Evolution.Extensibility.Apis.Get<IEventLog>().Write(
 						$"Throttling IP '{ip}' until '{loginSummary.ThrottledUntilTime.ToLocalTime()}' ({TimeToThrottle.Minutes} minutes) due to too many login attempts ({loginSummary.NumberOfAttempts})."
 						, new EventLogEntryWriteOptions() { Category = "LoginThrottling", EventType = "Information" });
@@ -165,8 +196,8 @@ namespace CommunityUserThrottle
 			_throttleService.TimeToThrottle = new TimeSpan(0, 0, Configuration.GetInt("ThrottleMinutes").GetValueOrDefault(), 5);
 			_throttleService.SendEmail =  Configuration.GetBool("SendEmailOnExcessiveLoginFailures").GetValueOrDefault(false);
 			_throttleService.EmailAddresses = Configuration.GetString("EmailAddresses");
-			_throttleService.MaximumNumberOfFailedLoginAttemptsForSendingEmail = Configuration.GetInt("NumberOfFailedLoginAttemptsBeforeEmail").GetValueOrDefault();
-			_throttleService.FailedLoginAttemptsWindow = new TimeSpan(0, Configuration.GetInt("FailedLoginAttemptsHourEmailWindow").GetValueOrDefault(), 0, 0);
+			//_throttleService.MaximumNumberOfFailedLoginAttemptsForSendingEmail = Configuration.GetInt("NumberOfFailedLoginAttemptsBeforeEmail").GetValueOrDefault();
+			//_throttleService.FailedLoginAttemptsWindow = new TimeSpan(0, Configuration.GetInt("FailedLoginAttemptsHourEmailWindow").GetValueOrDefault(), 0, 0);
 		}
 
 		public string Name => "User Authentication Throttle Extension ($verint_v1_throttle)";
@@ -202,7 +233,7 @@ namespace CommunityUserThrottle
 					DataType = "Int",
 					OrderNumber = 0,
 					DefaultValue = "10",
-					DescriptionText = "After this number of failed attempts, the offending IP will not be allow to login anymore."
+					DescriptionText = "After this number of login attempts from the same IP, the offending IP will not be allow to login anymore."
 				});
 				groups[0].Properties.Add(new Property
 				{
@@ -222,24 +253,24 @@ namespace CommunityUserThrottle
 					DefaultValue = "true",
 					DescriptionText = "Send email if there are excessive number of logins failures."
 				});
-				groups[0].Properties.Add(new Property
-				{
-					Id = "FailedLoginAttemptsHourEmailWindow",
-					LabelText = "Hour(s) window for emailing failed throttle",
-					DataType = "Int",
-					OrderNumber = 3,
-					DefaultValue = "12",
-					DescriptionText = "The window of hours to evaluate for the number of failed attempts before sending email. If the configured number of failures happen in this hour(s) window, an email will be sent."
-				});
-				groups[0].Properties.Add(new Property
-				{
-					Id = "NumberOfFailedLoginAttemptsBeforeEmail",
-					LabelText = "Number of failed email attempts before sending email",
-					DataType = "Int",
-					OrderNumber = 4,
-					DefaultValue = "50",
-					DescriptionText = "The number of failed attempts that must occur within the window before an email is sent."
-				});
+				//groups[0].Properties.Add(new Property
+				//{
+				//	Id = "FailedLoginAttemptsHourEmailWindow",
+				//	LabelText = "Hour(s) window for emailing failed throttle",
+				//	DataType = "Int",
+				//	OrderNumber = 3,
+				//	DefaultValue = "12",
+				//	DescriptionText = "The window of hours to evaluate for the number of failed attempts before sending email. If the configured number of failures happen in this hour(s) window, an email will be sent."
+				//});
+				//groups[0].Properties.Add(new Property
+				//{
+				//	Id = "NumberOfFailedLoginAttemptsBeforeEmail",
+				//	LabelText = "Number of failed email attempts before sending email",
+				//	DataType = "Int",
+				//	OrderNumber = 4,
+				//	DefaultValue = "50",
+				//	DescriptionText = "The number of failed attempts that must occur within the window before an email is sent."
+				//});
 				groups[0].Properties.Add(new Property
 				{
 					Id = "EmailAddresses",
