@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Telligent.Evolution.Api.Plugins.Administration;
+using Telligent.Evolution.Api.Plugins.Rules.Conditions;
 using Telligent.Evolution.Extensibility.Api.Version1;
 using Telligent.Evolution.Extensibility.Configuration.Version1;
 using Telligent.Evolution.Extensibility.UI.Version1;
@@ -32,7 +34,9 @@ namespace CommunityUserThrottle
 		{
 			get => _maxNumberOfLoginAttempts;
 			set => _maxNumberOfLoginAttempts = value < 0 ? 10 : value;
-		} 
+		}
+
+		internal List<string> WhitelistedIps { get; set; } = new List<string>();
 
 		public bool IsCurrentlyThrottled(string ip)
 		{
@@ -119,6 +123,9 @@ namespace CommunityUserThrottle
 
 		public bool CheckAndTrackLoginAttempt(string ip)
 		{
+			if (this.WhitelistedIps == null || this.WhitelistedIps.Contains(ip))
+				return true;
+
 			if (string.IsNullOrEmpty(ip))
 				ip = "null-IP";
 
@@ -196,6 +203,11 @@ namespace CommunityUserThrottle
 			_throttleService.TimeToThrottle = new TimeSpan(0, 0, Configuration.GetInt("ThrottleMinutes").GetValueOrDefault(), 5);
 			_throttleService.SendEmail =  Configuration.GetBool("SendEmailOnExcessiveLoginFailures").GetValueOrDefault(false);
 			_throttleService.EmailAddresses = Configuration.GetString("EmailAddresses");
+			var ipConfig = Configuration.GetString("WhitelistIps");
+			var ips = new List<string>();
+			if (!string.IsNullOrEmpty(ipConfig))
+				ips.AddRange(ipConfig.Split(new[] {';'}, StringSplitOptions.RemoveEmptyEntries));
+			_throttleService.WhitelistedIps = ips;
 			//_throttleService.MaximumNumberOfFailedLoginAttemptsForSendingEmail = Configuration.GetInt("NumberOfFailedLoginAttemptsBeforeEmail").GetValueOrDefault();
 			//_throttleService.FailedLoginAttemptsWindow = new TimeSpan(0, Configuration.GetInt("FailedLoginAttemptsHourEmailWindow").GetValueOrDefault(), 0, 0);
 		}
@@ -277,6 +289,14 @@ namespace CommunityUserThrottle
 					LabelText = "Emails addresses (separated by semicolons). Ex. 'admin@localhost.com;another@localhost.com'",
 					DataType = "String",
 					OrderNumber = 5,
+					DefaultValue = ""
+				});
+				groups[0].Properties.Add(new Property
+				{
+					Id = "WhitelistIps",
+					LabelText = "Whitelisted IPs (separated by semicolons). Ex. '10.1.1.13;10.1.1.14'",
+					DataType = "String",
+					OrderNumber = 6,
 					DefaultValue = ""
 				});
 
